@@ -78,7 +78,7 @@ def _resolve_quarters(quarters_config) -> List[str]:
 
 def scan(config: Dict[str, Any]) -> List[ScanResult]:
     """Walk the folder structure and return all NL-36 PDFs to process."""
-    base_path = config.get("base_path", "").strip()
+    base_path = os.path.expanduser(config.get("base_path", "").strip())
     fiscal_years = config.get("fiscal_years", [])
     quarters = _resolve_quarters(config.get("quarters", "all"))
 

@@ -81,7 +81,7 @@ def main():
         logger.info("No NL-36 PDFs found. Check base_path and fiscal_years.")
         sys.exit(0)
 
-    log_path = config["processed_log_path"]
+    log_path = os.path.expanduser(config["processed_log_path"])
     log_data = load_log(log_path)
     to_process = filter_unprocessed(
         scan_results, log_data,
@@ -99,7 +99,7 @@ def main():
             logger.info(f"  {r.company_key}  {r.fiscal_year} {r.quarter}  {r.pdf_path}")
         sys.exit(0)
 
-    master_path = config["master_sheet_path"]
+    master_path = os.path.expanduser(config["master_sheet_path"])
     succeeded = 0
     failed = 0
     failed_files = []

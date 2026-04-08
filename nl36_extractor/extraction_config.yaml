@@ -12,7 +12,7 @@ quarters:
   - Q3
 
 # Output Excel workbook path
-master_sheet_path: ~/Desktop/App/extractors/NL36/nl36_extractor/outputs/NL36_Master.xlsx
+master_sheet_path: ~/Desktop/Forms/NL36_Master.xlsx
 
 # Processed log path (tracks which PDFs have been extracted)
-processed_log_path: ~/Desktop/App/extractors/NL36/nl36_extractor/logs/processed_log.json
+processed_log_path: ~/Desktop/Forms/.NL36_processed_log.json
