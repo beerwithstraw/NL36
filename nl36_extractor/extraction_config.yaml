@@ -1,0 +1,18 @@
+# NL-36 Extraction Pipeline Configuration
+
+# Folder containing FY* subfolders
+base_path: ~/Desktop/Forms
+
+# Fiscal years to process
+fiscal_years:
+  - FY2026
+
+# Quarters to process (or "all")
+quarters:
+  - Q3
+
+# Output Excel workbook path
+master_sheet_path: ~/Desktop/App/extractors/NL36/nl36_extractor/outputs/NL36_Master.xlsx
+
+# Processed log path (tracks which PDFs have been extracted)
+processed_log_path: ~/Desktop/App/extractors/NL36/nl36_extractor/logs/processed_log.json
