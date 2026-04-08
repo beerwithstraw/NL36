@@ -37,7 +37,7 @@ class ScanResult:
 def _fy_to_year_code(fiscal_year: str) -> str:
     try:
         y = int(fiscal_year.replace("FY", ""))
-        return f"20{str(y-1)[-2:]}20{str(y)[-2:]}"
+        return f"20{str(y-1)[-2:]}{str(y)[-2:]}"
     except (ValueError, IndexError):
         logger.warning(f"Could not parse fiscal year: {fiscal_year}")
         return ""
