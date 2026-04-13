@@ -184,49 +184,81 @@ def save_workbook(
 
 
 def write_validation_summary_sheet(report_path: str, workbook_path: str) -> None:
-    """Append a Validation_Summary sheet to the workbook."""
-    import csv
-    from collections import Counter
+    """
+    Append a Validation_Summary sheet — one row per company with
+    PASS / WARN / FAIL counts as columns (mirrors NL35 layout).
+    """
+    import pandas as pd
 
     if not Path(report_path).exists():
         return
 
-    counts: Counter = Counter()
-    with open(report_path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            counts[row.get("status", "UNKNOWN")] += 1
+    df = pd.read_csv(report_path)
+    summary = df.pivot_table(
+        index=["company", "quarter", "year"],
+        columns="status",
+        aggfunc="size",
+        fill_value=0,
+    ).reset_index()
 
-    wb = load_workbook(workbook_path)
-    if "Validation_Summary" in wb.sheetnames:
-        del wb["Validation_Summary"]
-    ws = wb.create_sheet("Validation_Summary")
+    for col in ["PASS", "WARN", "FAIL", "SKIP"]:
+        if col not in summary.columns:
+            summary[col] = 0
 
-    ws.append(["Status", "Count"])
-    for status in ["PASS", "WARN", "FAIL"]:
-        ws.append([status, counts.get(status, 0)])
+    summary["Files_Processed"] = 1
+    summary = summary.rename(columns={"company": "Company", "quarter": "Quarter", "year": "Year"})
+    summary["Total_Checks"] = summary[["PASS", "SKIP", "WARN", "FAIL"]].sum(axis=1)
+    cols = ["Company", "Quarter", "Year", "Files_Processed", "Total_Checks", "PASS", "SKIP", "WARN", "FAIL"]
+    summary = summary[cols]
 
-    wb.save(workbook_path)
+    with pd.ExcelWriter(workbook_path, mode="a", engine="openpyxl", if_sheet_exists="replace") as writer:
+        summary.to_excel(writer, sheet_name="Validation_Summary", index=False)
 
 
 def write_validation_detail_sheet(report_path: str, workbook_path: str) -> None:
-    """Append a Validation_Detail sheet (FAILs and WARNs) to the workbook."""
-    import csv
+    """
+    Append a Validation_Detail sheet — FAILs and WARNs only, with
+    renamed columns, sorted by Status, and red/yellow row highlights
+    (mirrors NL35 layout).
+    """
+    import pandas as pd
 
     if not Path(report_path).exists():
         return
 
+    df = pd.read_csv(report_path)
+    cols_map = {
+        "company":    "Company",
+        "quarter":    "Quarter",
+        "year":       "Year",
+        "channel":    "Channel",
+        "field":      "Field",
+        "check_name": "Check_Name",
+        "status":     "Status",
+        "expected":   "Expected",
+        "actual":     "Actual",
+        "delta":      "Delta",
+        "note":       "Note",
+    }
+    detail = df[df["status"].isin(["FAIL", "WARN"])].copy()
+    if detail.empty:
+        detail = pd.DataFrame(columns=list(cols_map.values()))
+    else:
+        detail = detail.rename(columns=cols_map)[list(cols_map.values())]
+        detail = detail.sort_values(by="Status").reset_index(drop=True)
+
+    with pd.ExcelWriter(workbook_path, mode="a", engine="openpyxl", if_sheet_exists="replace") as writer:
+        detail.to_excel(writer, sheet_name="Validation_Detail", index=False)
+
     wb = load_workbook(workbook_path)
-    if "Validation_Detail" in wb.sheetnames:
-        del wb["Validation_Detail"]
-    ws = wb.create_sheet("Validation_Detail")
-
-    with open(report_path, newline="") as f:
-        reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        ws.append(headers)
-        for row in reader:
-            if row.get("status") in ("FAIL", "WARN"):
-                ws.append([row.get(h, "") for h in headers])
-
+    ws = wb["Validation_Detail"]
+    red_fill    = PatternFill(start_color="FFE0E0", end_color="FFE0E0", fill_type="solid")
+    yellow_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+    status_col  = list(cols_map.values()).index("Status") + 1
+    for row_idx in range(2, ws.max_row + 1):
+        status_val = ws.cell(row=row_idx, column=status_col).value
+        fill = red_fill if status_val == "FAIL" else yellow_fill
+        for col_idx in range(1, ws.max_column + 1):
+            ws.cell(row=row_idx, column=col_idx).fill = fill
     wb.save(workbook_path)
+    logger.info(f"Validation_Detail sheet written to {workbook_path}")

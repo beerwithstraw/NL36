@@ -22,6 +22,7 @@ Column layout (fixed across all NL-36 companies):
   col 9: PY YTD  — Premium
 """
 
+import re
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -36,20 +37,27 @@ from config.company_registry import COMPANY_DISPLAY_NAMES
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Period keyword → canonical period key
+# Period header patterns (regex-based, ordered most-specific first)
 # ---------------------------------------------------------------------------
-_PERIOD_KEYWORDS: List[Tuple[str, str]] = [
-    # More specific patterns first (PY checks must come before CY to avoid
-    # "for the corresponding quarter" matching "for the quarter")
-    ("for the corresponding",           "py_qtr"),
-    ("up to the corresponding",         "py_ytd"),
-    ("upto the corresponding",          "py_ytd"),
-    # CY patterns
-    ("for the quarter",                 "cy_qtr"),
-    ("upto the quarter",                "cy_ytd"),
-    ("up to the quarter",               "cy_ytd"),
-    ("for the period ended",            "cy_ytd"),   # YTD-only fallback
-    ("upto the period",                 "cy_ytd"),
+_PERIOD_LABEL_MAP: List[Tuple[re.Pattern, str]] = [
+    # PY patterns — must come before generic CY patterns
+    (re.compile(r"up\s+to\s+the\s+corresponding\s+quarter\s+of\s+the\s+previous\s+year", re.IGNORECASE), "py_ytd"),
+    (re.compile(r"upto\s+the\s+corresponding\s+quarter\s+of\s+the\s+previous\s+year", re.IGNORECASE), "py_ytd"),
+    (re.compile(r"for\s+the\s+corresponding\s+quarter\s+of\s+the\s+previous\s+year", re.IGNORECASE), "py_qtr"),
+    (re.compile(r"for\s+the\s+corresponding", re.IGNORECASE), "py_qtr"),
+    (re.compile(r"up\s+to\s+the\s+corresponding", re.IGNORECASE), "py_ytd"),
+    (re.compile(r"upto\s+the\s+corresponding", re.IGNORECASE), "py_ytd"),
+    # CY standard
+    (re.compile(r"upto\s+the\s+quarter|up\s+to\s+the\s+quarter", re.IGNORECASE), "cy_ytd"),
+    (re.compile(r"for\s+the\s+quarter", re.IGNORECASE), "cy_qtr"),
+    # N-month variants
+    (re.compile(r"for\s+the\s+(?:9|nine)\s+months?\s+ended.{0,80}previous\s+year", re.IGNORECASE | re.DOTALL), "py_ytd"),
+    (re.compile(r"for\s+the\s+(?:9|nine)\s+months?\s+ended", re.IGNORECASE), "cy_ytd"),
+    (re.compile(r"for\s+the\s+(?:3|three)\s+months?\s+ended.{0,80}previous\s+year", re.IGNORECASE | re.DOTALL), "py_qtr"),
+    (re.compile(r"for\s+the\s+(?:3|three)\s+months?\s+ended", re.IGNORECASE), "cy_qtr"),
+    # Period ended / YTD fallback
+    (re.compile(r"for\s+the\s+period\s+ended", re.IGNORECASE), "cy_ytd"),
+    (re.compile(r"upto\s+the\s+period", re.IGNORECASE), "cy_ytd"),
 ]
 
 # Metric keyword → canonical metric key
@@ -59,6 +67,82 @@ _METRIC_KEYWORDS: List[Tuple[str, str]] = [
     ("policies",         "policies"),
     ("premium",          "premium"),
 ]
+
+# ---------------------------------------------------------------------------
+# Skip patterns — rows to ignore entirely during channel detection
+# ---------------------------------------------------------------------------
+_SKIP_PATTERNS = [
+    re.compile(r"^\d+$"),
+    re.compile(r"^sl\.?\s*no", re.IGNORECASE),
+    re.compile(r"^s\.?\s*no", re.IGNORECASE),
+    re.compile(r"^sr\.?\s*no", re.IGNORECASE),
+    re.compile(r"^channels?$", re.IGNORECASE),
+    re.compile(r"^intermediar", re.IGNORECASE),
+    re.compile(r"^particulars$", re.IGNORECASE),
+    re.compile(r"^form\s+nl[-\s]?36", re.IGNORECASE),
+    re.compile(r"^nl-36", re.IGNORECASE),
+    re.compile(r"^note", re.IGNORECASE),
+    re.compile(r"^date\s+of\s+upload", re.IGNORECASE),
+    re.compile(r"^report\s+version", re.IGNORECASE),
+    re.compile(r"^business\s+acquisition\s+through", re.IGNORECASE),  # header row
+    re.compile(r"(?:insurance|assurance)\s+company\s+limited", re.IGNORECASE),
+    re.compile(r".*\*+\s*$", re.DOTALL),                              # footnote markers
+    re.compile(r"^\(i\)\s*$", re.IGNORECASE),                         # lone footnote refs
+    re.compile(r"^\(ii\)\s*\w*$", re.IGNORECASE),
+]
+
+
+def _fy_quarter_patterns(fy_year: str) -> List[Tuple[re.Pattern, str]]:
+    """
+    Build FY-year-aware period patterns for date-based headers.
+
+    Accepts '2026' (4-digit FY end) or '202526' (6-digit pipeline year_code).
+
+    Matches:
+      'For the Quarter Ended Dec 31, 2025'  → cy_qtr
+      'Upto the Quarter Ended Dec 31, 2025' → cy_ytd
+      'For the Quarter Ended Dec 31, 2024'  → py_qtr
+      'Upto the Quarter Ended Dec 31, 2024' → py_ytd
+      'For Q3 2025-26'                      → cy_qtr  (Magma/Navi style)
+      'Upto Q3 2025-26'                     → cy_ytd
+      'Upto Q3 2024-25'                     → py_ytd
+    """
+    if not fy_year or not str(fy_year).isdigit():
+        return []
+    fy_year = str(fy_year)
+    if len(fy_year) == 6:
+        fy_start = int(fy_year[:4])
+    elif len(fy_year) == 4:
+        fy_start = int(fy_year) - 1
+    else:
+        return []
+    py_start = fy_start - 1
+    fy_suffix = str(fy_start)[-2:]
+    py_suffix = str(py_start)[-2:]
+
+    cy_yr = rf"(?:\b{fy_start}\b|-\s*{fy_suffix}(?!\d))"
+    py_yr = rf"(?:\b{py_start}\b|-\s*{py_suffix}(?!\d))"
+
+    return [
+        # FY-quarter "For Q3 2025-26" / "Upto Q3 2025-26" style (Magma/Navi)
+        (re.compile(rf"for\s+q\d[\s\S]*?{fy_start}-\d{{2}}", re.IGNORECASE), "cy_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+q\d[\s\S]*?{fy_start}-\d{{2}}", re.IGNORECASE), "cy_ytd"),
+        (re.compile(rf"for\s+q\d[\s\S]*?{py_start}-\d{{2}}", re.IGNORECASE), "py_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+q\d[\s\S]*?{py_start}-\d{{2}}", re.IGNORECASE), "py_ytd"),
+        # "For the period ended YYYY" = YTD (ZUNO style) — must come before quarter patterns
+        (re.compile(rf"for\s+the\s+period\s+ended[\s\S]{{0,80}}{cy_yr}", re.IGNORECASE), "cy_ytd"),
+        (re.compile(rf"for\s+the\s+period\s+ended[\s\S]{{0,80}}{py_yr}", re.IGNORECASE), "py_ytd"),
+        # Date-based "For the Quarter Ended Dec 31, YYYY" (with "Ended")
+        (re.compile(rf"for\s+the\s+quarter\s+ended[\s\S]{{0,80}}{cy_yr}", re.IGNORECASE), "cy_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+the\s+quarter\s+ended[\s\S]{{0,80}}{cy_yr}", re.IGNORECASE), "cy_ytd"),
+        (re.compile(rf"for\s+the\s+quarter\s+ended[\s\S]{{0,80}}{py_yr}", re.IGNORECASE), "py_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+the\s+quarter\s+ended[\s\S]{{0,80}}{py_yr}", re.IGNORECASE), "py_ytd"),
+        # Date-based without "Ended": "For the Quarter December 31, YYYY"
+        (re.compile(rf"for\s+the\s+quarter[\s\S]{{0,80}}{cy_yr}", re.IGNORECASE), "cy_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+the\s+quarter[\s\S]{{0,80}}{cy_yr}", re.IGNORECASE), "cy_ytd"),
+        (re.compile(rf"for\s+the\s+quarter[\s\S]{{0,80}}{py_yr}", re.IGNORECASE), "py_qtr"),
+        (re.compile(rf"(?:upto|up\s+to)\s+the\s+quarter[\s\S]{{0,80}}{py_yr}", re.IGNORECASE), "py_ytd"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -70,26 +154,33 @@ def resolve_company_name(company_key: str, pdf_path: str, fallback: str) -> str:
     return COMPANY_DISPLAY_NAMES.get(company_key, fallback)
 
 
-def detect_period_columns(table) -> Dict[int, Tuple[str, str]]:
+def detect_period_columns(table, fy_year: str = "") -> Dict[int, Tuple[str, str]]:
     """
-    Scan the first 4 rows to identify the period header row (r1) and
-    metric header row (r2), then return:
+    Scan the first 7 rows to identify the period header row and metric
+    sub-header row, then return:
         {col_idx: (period_key, metric_key)}
 
     period_key ∈ {"cy_qtr", "cy_ytd", "py_qtr", "py_ytd"}
     metric_key ∈ {"policies", "premium"}
 
+    fy_year: fiscal year string (e.g. '2026' or '202526').  When provided,
+    date-based headers like 'For the Quarter Ended Dec 31, 2025' and
+    FY-quarter headers like 'Upto Q3 2025-26' are correctly split CY vs PY.
+
     Returns empty dict if detection fails.
     """
+    # FY-specific patterns prepended so they take priority over generic ones
+    combined_label_map = _fy_quarter_patterns(fy_year) + _PERIOD_LABEL_MAP
+
     period_row_idx = None
     metric_row_idx = None
 
-    for ri in range(min(5, len(table))):
+    for ri in range(min(7, len(table))):
         row = table[ri]
-        row_text = " ".join((c or "") for c in row).lower()
-        if period_row_idx is None and any(kw in row_text for kw, _ in _PERIOD_KEYWORDS):
+        row_text = " ".join((c or "") for c in row)
+        if period_row_idx is None and any(p.search(row_text) for p, _ in combined_label_map):
             period_row_idx = ri
-        if metric_row_idx is None and any(kw in row_text for kw, _ in _METRIC_KEYWORDS):
+        if metric_row_idx is None and any(kw in row_text.lower() for kw, _ in _METRIC_KEYWORDS):
             metric_row_idx = ri
 
     if period_row_idx is None or metric_row_idx is None:
@@ -99,16 +190,16 @@ def detect_period_columns(table) -> Dict[int, Tuple[str, str]]:
     period_row = table[period_row_idx]
     metric_row = table[metric_row_idx]
 
-    # Build col → period: span-fill (last non-None period applies forward)
+    # Build col → period: span-fill (last matched period applies forward to None cells)
     col_to_period: Dict[int, str] = {}
     current_period: Optional[str] = None
     for ci, cell in enumerate(period_row):
         if ci < 2:  # skip Sl.No and label columns
             continue
-        if cell:
-            norm = cell.lower().replace("\n", " ").strip()
-            for kw, pk in _PERIOD_KEYWORDS:
-                if kw in norm:
+        if cell and str(cell).strip():
+            cell_text = str(cell).strip()
+            for pattern, pk in combined_label_map:
+                if pattern.search(cell_text):
                     current_period = pk
                     break
         if current_period:
@@ -120,7 +211,7 @@ def detect_period_columns(table) -> Dict[int, Tuple[str, str]]:
         if ci < 2:
             continue
         if cell:
-            norm = cell.lower().replace("\n", " ").replace("_", "").replace("-", "").strip()
+            norm = str(cell).lower().replace("\n", " ").replace("_", "").replace("-", "").strip()
             for kw, mk in _METRIC_KEYWORDS:
                 if kw in norm:
                     col_to_metric[ci] = mk
@@ -140,30 +231,51 @@ def detect_period_columns(table) -> Dict[int, Tuple[str, str]]:
     return result
 
 
-def detect_channel_rows(table, label_col: int = 1) -> Dict[int, str]:
+def detect_channel_rows(table, label_col: int = -1) -> Dict[int, str]:
     """
     Scan table rows and return {row_idx: channel_key} for every row whose
-    label (col `label_col`) matches a known CHANNEL_ALIASES entry.
+    label matches a known CHANNEL_ALIASES entry.
 
-    Rows 0-2 (headers) are always skipped.
-    Blank label rows are skipped.
+    If label_col == -1 (default), auto-detects the best label column by
+    trying columns 0-6 and picking whichever yields the most matches.
+
+    Header rows, blank rows, and rows matching _SKIP_PATTERNS are ignored.
     """
-    result: Dict[int, str] = {}
-    for ri, row in enumerate(table):
-        if ri < 3:
-            continue
-        if label_col >= len(row):
-            continue
-        label = (row[label_col] or "").strip()
-        if not label:
-            continue
-        norm = normalise_text(label)
-        channel_key = CHANNEL_ALIASES.get(norm)
-        if channel_key:
-            result[ri] = channel_key
-        else:
-            logger.debug(f"detect_channel_rows r{ri}: no alias for '{norm}'")
-    return result
+    ncols = max(len(r) for r in table) if table else 0
+
+    def _scan_col(col: int) -> Dict[int, str]:
+        found: Dict[int, str] = {}
+        seen: set = set()
+        for ri, row in enumerate(table):
+            if col >= len(row):
+                continue
+            raw = (row[col] or "").strip()
+            if not raw:
+                continue
+            if any(p.match(raw) for p in _SKIP_PATTERNS):
+                continue
+            norm = normalise_text(raw)
+            if not norm:
+                continue
+            channel_key = CHANNEL_ALIASES.get(norm)
+            if channel_key and channel_key not in seen:
+                found[ri] = channel_key
+                seen.add(channel_key)
+            elif not channel_key:
+                logger.debug(f"detect_channel_rows col={col} r{ri}: no alias for '{norm}'")
+        return found
+
+    if label_col >= 0:
+        return _scan_col(label_col)
+
+    # Auto-detect: pick column with most matches
+    best: Dict[int, str] = {}
+    for col in range(min(7, ncols)):
+        candidate = _scan_col(col)
+        if len(candidate) > len(best):
+            best = candidate
+            logger.debug(f"detect_channel_rows: best col now {col} ({len(best)} matches)")
+    return best
 
 
 def extract_nl36_grid(
@@ -208,7 +320,7 @@ def parse_header_driven_nl36(
     fallback_name: str,
     quarter: str = "",
     year: str = "",
-    label_col: int = 1,
+    label_col: int = -1,
 ) -> NL36Extract:
     """
     One-shot NL-36 extractor for standard-layout PDFs.
@@ -242,7 +354,7 @@ def parse_header_driven_nl36(
                 if not table or len(table) < 4:
                     continue
 
-                col_map = detect_period_columns(table)
+                col_map = detect_period_columns(table, fy_year=year)
                 if not col_map:
                     logger.warning(f"P{pi} T{ti}: detect_period_columns failed")
                     continue

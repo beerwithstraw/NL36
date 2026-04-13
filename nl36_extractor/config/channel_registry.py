@@ -130,16 +130,42 @@ CHANNEL_ALIASES = {
     "referral arrangements":                    "referral_arrangements",
     "referral":                                 "referral_arrangements",
 
-    # Other channels — note Bajaj typo "sepcified"
+    # Other channels — typo "sepcified" widespread; also variants with footnotes/blanks
     "other (to be sepcified)":                  "other_channels",
     "other (to be specified)":                  "other_channels",
+    "other (to be specify)":                    "other_channels",
     "other to be specified":                    "other_channels",
+    "other (sub intermediary)":                 "other_channels",
+    "other":                                    "other_channels",
+
+    # Direct sub-channels appearing as separate rows (dash-prefixed variants)
+    "-officers/employees":                      "direct_employees",
+    "-officers / employees":                    "direct_employees",
+    "i).officers/employees":                    "direct_employees",
+    "-online (through company website)":        "direct_online",
+    "ii) online (through company website)":     "direct_online",
+    "online (through company website)- others": "direct_online",   # Generali merged
+    "-others":                                  "direct_others",
+    "-others (other than through company website)": "direct_others",
+    "iii) others":                              "direct_others",
+    # Navi-specific direct channel labels
+    "direct business internet":                 "direct_online",
+    "direct business others":                   "direct_others",
+    # United India colon-joined labels
+    "direct business:officers/employees":       "direct_employees",
+    "direct business:online (through company website)": "direct_online",
+    "direct business:others":                   "direct_others",
+
+    # Common Service Centres — American spelling variant
+    "common service centers (csc)":             "common_service_centre",
+    "common service centers":                   "common_service_centre",
 
     # Totals — '+' stripped by normalise_text, so "A+B" → "ab"
     "total (a)":                                "total_channel",
     "total":                                    "total_channel",
     "business outside india (b)":               "business_outside_india",
     "business outside india":                   "business_outside_india",
+    "business outside india total (b)":         "business_outside_india",
     "grand total (ab)":                         "grand_total",
     "grand total":                              "grand_total",
 }
