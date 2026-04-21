@@ -1,9 +1,0 @@
-company,quarter,year,channel,field,check_name,status,expected,actual,delta,note
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,cy_qtr_policies,GRAND_TOTAL_IDENTITY,PASS,8944336.0,8944336.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,cy_qtr_premium,GRAND_TOTAL_IDENTITY,PASS,732479.0,732479.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,cy_ytd_policies,GRAND_TOTAL_IDENTITY,PASS,27474096.0,27474096.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,cy_ytd_premium,GRAND_TOTAL_IDENTITY,PASS,1887914.0,1887914.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,py_qtr_policies,GRAND_TOTAL_IDENTITY,PASS,14018694.0,14018694.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,py_qtr_premium,GRAND_TOTAL_IDENTITY,PASS,655529.0,655529.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,py_ytd_policies,GRAND_TOTAL_IDENTITY,PASS,35549831.0,35549831.0,0.0,
-Bajaj Allianz General Insurance Company Limited,Q3,20252026,grand_total,py_ytd_premium,GRAND_TOTAL_IDENTITY,PASS,1711244.0,1711244.0,0.0,

@@ -1,18 +1,39 @@
-# Generated outputs
-nl36_extractor/outputs/
-nl36_extractor/logs/
-
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
-.pytest_cache/
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Test / coverage
 .coverage
+.pytest_cache/
 htmlcov/
+
+# Input PDFs (source data — not committed)
+inputs/
+*_extract_*.pdf
+
+# Output files (generated)
+outputs/
+*.xlsx
+*.csv
+*.json
+*.log
+
+# Editor
+*.code-workspace
+.vscode/
+.idea/
 
 # macOS
 .DS_Store
 
-# Editor
-.vscode/
-.idea/
+# Claude Code
+.claude/
