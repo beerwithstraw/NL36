@@ -16,3 +16,21 @@ master_sheet_path: ~/Desktop/Forms/NL36_Master.xlsx
 
 # Processed log path (tracks which PDFs have been extracted)
 processed_log_path: ~/Desktop/Forms/.NL36_processed_log.json
+
+# How to handle Consolidated/ PDFs at the Q{n}/Consolidated/ level
+# 'dynamic' = scan pages using keyword detection (recommended)
+# 'skip'    = ignore all consolidated PDFs
+consolidated_mode: dynamic
+
+# Keywords used to detect the NL-36 section in a consolidated PDF
+nl36_keywords:
+  - "NL-36"
+  - "DISTRIBUTION OF BUSINESS"
+  - "INTERMEDIAR"
+  - "INDIVIDUAL AGENTS"
+  - "GRAND TOTAL"
+
+nl36_keyword_min_matches: 3
+
+# Per-company page overrides (optional, 1-indexed)
+nl36_page_overrides: {}

@@ -8,6 +8,9 @@ Expected folder layout:
         NL36/
           NL36_BajajGeneral.pdf
           ...
+        Consolidated/
+          BAJAJ_CONSOLIDATED.pdf
+          ...
 """
 
 import hashlib
@@ -30,7 +33,7 @@ class ScanResult:
     quarter: str
     fiscal_year: str
     year_code: str
-    source_type: str    # always "direct" for NL-36
+    source_type: str    # "direct" or "consolidated"
     file_hash: str
 
 
@@ -102,28 +105,56 @@ def scan(config: Dict[str, Any]) -> List[ScanResult]:
             if not os.path.isdir(q_path):
                 continue
 
+            direct_companies: set = set()
+
+            # --- Scan NL36/ subfolder (direct PDFs) ---
             nl36_path = os.path.join(q_path, "NL36")
-            if not os.path.isdir(nl36_path):
-                continue
+            if os.path.isdir(nl36_path):
+                for fname in os.listdir(nl36_path):
+                    if not fname.lower().endswith(".pdf"):
+                        continue
+                    result = _extract_company_key(fname)
+                    if not result:
+                        continue
+                    company_key, company_raw = result
+                    pdf_path = os.path.join(nl36_path, fname)
+                    results.append(ScanResult(
+                        pdf_path=os.path.abspath(pdf_path),
+                        company_key=company_key,
+                        company_raw=company_raw,
+                        quarter=quarter,
+                        fiscal_year=str(fy),
+                        year_code=year_code,
+                        source_type="direct",
+                        file_hash=_file_hash(pdf_path),
+                    ))
+                    direct_companies.add(company_key)
 
-            for fname in os.listdir(nl36_path):
-                if not fname.lower().endswith(".pdf"):
-                    continue
-                result = _extract_company_key(fname)
-                if not result:
-                    continue
-                company_key, company_raw = result
-                pdf_path = os.path.join(nl36_path, fname)
-                results.append(ScanResult(
-                    pdf_path=os.path.abspath(pdf_path),
-                    company_key=company_key,
-                    company_raw=company_raw,
-                    quarter=quarter,
-                    fiscal_year=str(fy),
-                    year_code=year_code,
-                    source_type="direct",
-                    file_hash=_file_hash(pdf_path),
-                ))
+            # --- Scan Consolidated/ subfolder ---
+            consol_path = os.path.join(q_path, "Consolidated")
+            if config.get("consolidated_mode", "dynamic") != "skip" and os.path.isdir(consol_path):
+                for fname in os.listdir(consol_path):
+                    if not fname.lower().endswith(".pdf"):
+                        continue
+                    result = _extract_company_key(fname)
+                    if result is None:
+                        continue
+                    company_key, company_raw = result
+                    if company_key in direct_companies:
+                        continue
+                    pdf_path = os.path.join(consol_path, fname)
+                    results.append(ScanResult(
+                        pdf_path=os.path.abspath(pdf_path),
+                        company_key=company_key,
+                        company_raw=company_raw,
+                        quarter=quarter,
+                        fiscal_year=str(fy),
+                        year_code=year_code,
+                        source_type="consolidated",
+                        file_hash=_file_hash(pdf_path),
+                    ))
 
-    logger.info(f"Scan complete: {len(results)} NL-36 PDFs found")
+    n_direct = sum(1 for r in results if r.source_type == "direct")
+    n_consol = sum(1 for r in results if r.source_type == "consolidated")
+    logger.info(f"Scan complete: {len(results)} PDFs found ({n_direct} direct, {n_consol} consolidated)")
     return results

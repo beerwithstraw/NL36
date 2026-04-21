@@ -18,6 +18,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from extractor.path_scanner import scan
+from extractor.consolidated_detector import find_nl36_pages, extract_nl36_to_temp
 from extractor.processed_log import load as load_log, save as save_log
 from extractor.processed_log import filter_unprocessed, mark_processed
 from extractor.parser import parse_pdf
@@ -106,17 +107,57 @@ def main():
     all_extractions = []
     all_validation_results = []
 
+    consolidated_mode = config.get("consolidated_mode", "dynamic")
+
     for result in to_process:
-        logger.info(f"Extracting {result.company_key} {result.fiscal_year} {result.quarter}")
+        logger.info(
+            f"Extracting [{result.source_type}] {result.company_key} "
+            f"{result.fiscal_year} {result.quarter}"
+        )
+
+        pdf_to_parse = result.pdf_path
+        temp_file = None
+
         try:
+            if result.source_type == "consolidated" and consolidated_mode != "skip":
+                page_overrides = config.get("nl36_page_overrides", {})
+                override = page_overrides.get(result.company_key) or {}
+
+                if "start" in override:
+                    start_0 = int(override["start"]) - 1
+                    end_0 = int(override.get("end", override["start"])) - 1
+                    pages = (start_0, end_0)
+                    logger.info(f"  Hard page override: pages {start_0}-{end_0}")
+                else:
+                    keywords = config.get("nl36_keywords", None)
+                    min_matches = int(override.get(
+                        "min_matches",
+                        config.get("nl36_keyword_min_matches", 3),
+                    ))
+                    pages = find_nl36_pages(result.pdf_path, keywords, min_matches)
+
+                if pages is None:
+                    logger.warning(f"  NL-36 section not found, skipping: {result.pdf_path}")
+                    failed += 1
+                    failed_files.append((result.pdf_path, "NL-36 section not found"))
+                    continue
+
+                temp_file = extract_nl36_to_temp(result.pdf_path, pages[0], pages[1])
+                if temp_file is None:
+                    logger.warning(f"  Page extraction failed, skipping: {result.pdf_path}")
+                    failed += 1
+                    failed_files.append((result.pdf_path, "Page extraction failed"))
+                    continue
+
+                pdf_to_parse = temp_file
+
             extract = parse_pdf(
-                result.pdf_path,
+                pdf_to_parse,
                 result.company_key,
                 result.quarter,
                 result.year_code,
             )
 
-            # No-op for NL36 (satisfies pipeline contract)
             extract.align_periods()
 
             validation_results = run_validations([extract])
@@ -134,6 +175,10 @@ def main():
             logger.error(f"  Failed: {result.company_key} — {e}", exc_info=True)
             failed += 1
             failed_files.append((result.pdf_path, str(e)))
+
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                os.unlink(temp_file)
 
     if all_extractions:
         logger.info(f"Writing master workbook to {master_path}")
