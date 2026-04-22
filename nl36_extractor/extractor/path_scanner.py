@@ -18,7 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import List, Optional, Dict, Any, Tuple
 
 from config.company_registry import COMPANY_MAP
 
@@ -79,9 +79,9 @@ def _resolve_quarters(quarters_config) -> List[str]:
     return ["Q1", "Q2", "Q3", "Q4"]
 
 
-def scan(config: Dict[str, Any]) -> List[ScanResult]:
-    """Walk the folder structure and return all NL-36 PDFs to process."""
-    base_path = os.path.expanduser(config.get("base_path", "").strip())
+
+def scan(config: Dict[str, Any]) -> Tuple[List[ScanResult], List[str]]:
+    base_path = config.get("base_path", "").strip()
     fiscal_years = config.get("fiscal_years", [])
     quarters = _resolve_quarters(config.get("quarters", "all"))
 
@@ -91,6 +91,7 @@ def scan(config: Dict[str, Any]) -> List[ScanResult]:
         raise FileNotFoundError(f"base_path does not exist: {base_path}")
 
     results: List[ScanResult] = []
+    unrecognized: List[str] = []
 
     for fy in fiscal_years:
         fy_path = os.path.join(base_path, str(fy))
@@ -105,30 +106,31 @@ def scan(config: Dict[str, Any]) -> List[ScanResult]:
             if not os.path.isdir(q_path):
                 continue
 
-            direct_companies: set = set()
+            direct_companies = set()
 
-            # --- Scan NL36/ subfolder (direct PDFs) ---
-            nl36_path = os.path.join(q_path, "NL36")
-            if os.path.isdir(nl36_path):
-                for fname in os.listdir(nl36_path):
+            # --- Scan NL36/ subfolder ---
+            direct_path = os.path.join(q_path, "NL36")
+            if os.path.isdir(direct_path):
+                for fname in os.listdir(direct_path):
                     if not fname.lower().endswith(".pdf"):
                         continue
                     result = _extract_company_key(fname)
-                    if not result:
-                        continue
-                    company_key, company_raw = result
-                    pdf_path = os.path.join(nl36_path, fname)
-                    results.append(ScanResult(
-                        pdf_path=os.path.abspath(pdf_path),
-                        company_key=company_key,
-                        company_raw=company_raw,
-                        quarter=quarter,
-                        fiscal_year=str(fy),
-                        year_code=year_code,
-                        source_type="direct",
-                        file_hash=_file_hash(pdf_path),
-                    ))
-                    direct_companies.add(company_key)
+                    if result:
+                        company_key, company_raw = result
+                        pdf_path = os.path.join(direct_path, fname)
+                        results.append(ScanResult(
+                            pdf_path=os.path.abspath(pdf_path),
+                            company_key=company_key,
+                            company_raw=company_raw,
+                            quarter=quarter,
+                            fiscal_year=str(fy),
+                            year_code=year_code,
+                            source_type="direct",
+                            file_hash=_file_hash(pdf_path),
+                        ))
+                        direct_companies.add(company_key)
+                    else:
+                        unrecognized.append(os.path.abspath(os.path.join(direct_path, fname)))
 
             # --- Scan Consolidated/ subfolder ---
             consol_path = os.path.join(q_path, "Consolidated")
@@ -138,6 +140,7 @@ def scan(config: Dict[str, Any]) -> List[ScanResult]:
                         continue
                     result = _extract_company_key(fname)
                     if result is None:
+                        unrecognized.append(os.path.abspath(os.path.join(consol_path, fname)))
                         continue
                     company_key, company_raw = result
                     if company_key in direct_companies:
@@ -154,7 +157,5 @@ def scan(config: Dict[str, Any]) -> List[ScanResult]:
                         file_hash=_file_hash(pdf_path),
                     ))
 
-    n_direct = sum(1 for r in results if r.source_type == "direct")
-    n_consol = sum(1 for r in results if r.source_type == "consolidated")
-    logger.info(f"Scan complete: {len(results)} PDFs found ({n_direct} direct, {n_consol} consolidated)")
-    return results
+    logger.info(f"Scan complete: {len(results)} PDFs found")
+    return results, unrecognized
