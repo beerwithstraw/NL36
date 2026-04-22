@@ -6,6 +6,8 @@ Company Registry for NL-36 Distribution of Business via Intermediaries.
 # Company detection: normalised filename/text tokens → company key
 # ---------------------------------------------------------------------------
 COMPANY_MAP = {
+    "care": "care_health",
+    "star": "star_health",
     "bajaj allianz":            "bajaj_allianz",
     "bajajgeneral":             "bajaj_allianz",
     "bajaj":                    "bajaj_allianz",
