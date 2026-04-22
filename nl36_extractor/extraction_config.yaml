@@ -33,9 +33,8 @@ nl36_keywords:
 nl36_keyword_min_matches: 3
 
 # Per-company page overrides (optional, 1-indexed)
-nl36_page_overrides: {
-  "ECGC": {
-    "start": 2,
-    "end": 2
-  }
 }
+nl36_page_overrides:
+  ECGC:
+    start: 39
+    end: 39
