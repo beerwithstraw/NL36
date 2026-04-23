@@ -33,11 +33,10 @@ nl36_keywords:
 nl36_keyword_min_matches: 3
 
 # Per-company page overrides (optional, 1-indexed)
-}
 nl36_page_overrides:
   ECGC:
     start: 39
     end: 39
-  NEWINDIA:
+  new_india:
     start: 37
     end: 37
