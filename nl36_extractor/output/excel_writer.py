@@ -186,7 +186,7 @@ def save_workbook(
 def write_validation_summary_sheet(report_path: str, workbook_path: str, force_company: str = None) -> None:
     """
     Append a Validation_Summary sheet — one row per company with
-    PASS / WARN / FAIL counts as columns (mirrors NL36 layout).
+    PASS / WARN / FAIL counts as columns.
     """
     import pandas as pd
 
@@ -226,7 +226,7 @@ def write_validation_detail_sheet(report_path: str, workbook_path: str, force_co
     """
     Append a Validation_Detail sheet — FAILs and WARNs only, with
     renamed columns, sorted by Status, and red/yellow row highlights
-    (mirrors NL36 layout).
+    (mirrors standard validation layout).
     """
     import pandas as pd
 
