@@ -1,4 +1,4 @@
-"""Tests for extractor.normaliser — identical to NL6 normaliser."""
+"""Tests for extractor.normaliser — identical to NL36 normaliser."""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
